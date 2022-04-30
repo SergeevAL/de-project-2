@@ -87,114 +87,127 @@ vo.user_id = vu.id;
 --monetary_value
 -----------------
 
-select vo.user_id, sum(cost) as monetary_value  from analysis.v_orders vo 
-where vo.status = 4
-group by vo.user_id
-order by 1;
-
-select vo.user_id ,NTILE(5) OVER(ORDER BY sum(cost)) as monetary_value  from analysis.v_orders vo 
-where vo.status = 4
-group by vo.user_id
+select vu.id as user_id, NTILE(5) OVER(ORDER BY sum(cost) nulls first) as monetary_value 
+from analysis.v_users vu 
+left join analysis.v_orders vo 
+on vu.id = vo.user_id
+and vo.order_ts >= date '2021-01-01'
+and vo.status = 4
+group by vu.id
 order by 1;
 
 -- Проверка разбиения
 select v.monetary_value, count(*) from
-(select vo.user_id, sum(cost) ,NTILE(5) OVER(ORDER BY sum(cost)) as monetary_value  from analysis.v_orders vo 
-where vo.status = 4
-group by vo.user_id
-order by 1) v
+	(select vu.id as user_id, NTILE(5) OVER(ORDER BY sum(cost) nulls first) as monetary_value 
+	from analysis.v_users vu 
+	left join analysis.v_orders vo 
+	on vu.id = vo.user_id
+	and vo.order_ts >= date '2021-01-01'
+	and vo.status = 4
+	group by vu.id
+	order by 1) v
 group by v.monetary_value;
 
 -----------------
 --frequency
 -----------------
-select vo.user_id, count(*) as frequency  from analysis.v_orders vo 
-group by vo.user_id
-order by 1;
 
-select vo.user_id, NTILE(5) OVER(ORDER BY count(*)) as frequency  from analysis.v_orders vo 
-group by vo.user_id
+select vu.id as user_id, NTILE(5) OVER(ORDER BY count(vo.order_id) nulls first) as frequency
+from analysis.v_users vu 
+left join analysis.v_orders vo 
+on vu.id = vo.user_id
+and vo.order_ts >= date '2021-01-01'
+and vo.status = 4
+group by vu.id
 order by 1;
 
 -- Проверка разбиения
 
 select v.frequency, count(*) from
-(select vo.user_id, NTILE(5) OVER(ORDER BY count(*)) as frequency  from analysis.v_orders vo 
-group by vo.user_id
-order by 1) v
+	(select vu.id as user_id, NTILE(5) OVER(ORDER BY count(vo.order_id) nulls first) as frequency
+	from analysis.v_users vu 
+	left join analysis.v_orders vo 
+	on vu.id = vo.user_id
+	and vo.order_ts >= date '2021-01-01'
+	and vo.status = 4
+	group by vu.id
+	order by 1) v
 group by v.frequency;
+
+
 
 -----------------
 --recency
 -----------------
-
-select distinct s.user_id, 
-	LAST_VALUE(s.diff) OVER (partition by s.user_id ORDER BY s.order_ts 
-	RANGE BETWEEN 
-   	UNBOUNDED PRECEDING AND 
-    UNBOUNDED FOLLOWING) as recency
-from (
-	select vo.user_id, vo.order_ts ,vo.order_ts - lag(vo.order_ts) over (partition by vo.user_id order by vo.order_ts) diff
-	from analysis.v_orders vo
-	order by vo.user_id, vo.order_ts) s
+select vu.id as user_id, NTILE(5) OVER(ORDER BY max(vo.order_ts) nulls first) as recency
+from analysis.v_users vu 
+left join analysis.v_orders vo 
+on vu.id = vo.user_id
+and vo.order_ts >= date '2021-01-01'
+and vo.status = 4
+group by vu.id
 order by 1;
 
-select ss.user_id, NTILE(5) OVER(ORDER BY ss.recency desc) as recency 
-from (
-	select distinct s.user_id, 
-		LAST_VALUE(s.diff) OVER (partition by s.user_id ORDER BY s.order_ts 
-		RANGE BETWEEN 
-	   	UNBOUNDED PRECEDING AND 
-	    UNBOUNDED FOLLOWING) as recency
-	from (
-		select vo.user_id, vo.order_ts ,vo.order_ts - lag(vo.order_ts) over (partition by vo.user_id order by vo.order_ts) diff
-		from analysis.v_orders vo
-		order by vo.user_id, vo.order_ts) s
-order by 1) ss;
+--  Проверка разбивки
+select v.recency, count(*) from
+	(select vu.id, NTILE(5) OVER(ORDER BY max(vo.order_ts) nulls first) as recency
+	from analysis.v_users vu 
+	left join analysis.v_orders vo 
+	on vu.id = vo.user_id
+	and vo.order_ts >= date '2021-01-01'
+	and vo.status = 4
+	group by vu.id
+	order by 1) v
+group by v.recency;
 
---Проверка разбиения
+------------
 
-select sss.recency, count(*) from (
-	select ss.user_id, NTILE(5) OVER(ORDER BY ss.recency desc) as recency from (
-		select distinct s.user_id, 
-			LAST_VALUE(s.diff) OVER (partition by s.user_id ORDER BY s.order_ts 
-			RANGE BETWEEN 
-		   	UNBOUNDED PRECEDING AND 
-		    UNBOUNDED FOLLOWING) as recency
-		from (
-			select vo.user_id, vo.order_ts ,vo.order_ts - lag(vo.order_ts) over (partition by vo.user_id order by vo.order_ts) diff
-			from analysis.v_orders vo
-			order by vo.user_id, vo.order_ts) s
-	order by 1) ss ) sss
-group by sss.recency;
+-- В таком варианте колонка frequency немного отличается
+-- select vu.id as user_id, 
+-- 	NTILE(5) OVER(ORDER BY max(vo.order_ts) nulls first) as recency,
+-- 	NTILE(5) OVER(ORDER BY count(vo.order_id) nulls first) as frequency,
+-- 	NTILE(5) OVER(ORDER BY sum(cost)) as monetary_value
+-- from analysis.v_users vu 
+-- left join analysis.v_orders vo 
+-- on vu.id = vo.user_id
+-- and vo.order_ts >= date '2021-01-01'
+-- and vo.status = 4
+-- group by vu.id
+-- order by 1;
+
 
 ------------------------
 -- Запрос для загрузки
 ------------------------
 
 with recency_query as (
-	select ss.user_id, NTILE(5) OVER(ORDER BY ss.recency desc) as recency 
-	from (
-		select distinct s.user_id, 
-			LAST_VALUE(s.diff) OVER (partition by s.user_id ORDER BY s.order_ts 
-			RANGE BETWEEN 
-		   	UNBOUNDED PRECEDING AND 
-		    UNBOUNDED FOLLOWING) as recency
-		from (
-			select vo.user_id, vo.order_ts ,vo.order_ts - lag(vo.order_ts) over (partition by vo.user_id order by vo.order_ts) diff
-			from analysis.v_orders vo
-			order by vo.user_id, vo.order_ts) s
-	order by 1) ss
+	select vu.id as user_id, NTILE(5) OVER(ORDER BY max(vo.order_ts) nulls first) as recency
+	from analysis.v_users vu 
+	left join analysis.v_orders vo 
+	on vu.id = vo.user_id
+	and vo.order_ts >= date '2021-01-01'
+	and vo.status = 4
+	group by vu.id
+	order by 1
 ),
 frequency_query as (
-	select vo.user_id, NTILE(5) OVER(ORDER BY count(*)) as frequency  from analysis.v_orders vo 
-	group by vo.user_id
+	select vu.id as user_id, NTILE(5) OVER(ORDER BY count(vo.order_id) nulls first) as frequency
+	from analysis.v_users vu 
+	left join analysis.v_orders vo 
+	on vu.id = vo.user_id
+	and vo.order_ts >= date '2021-01-01'
+	and vo.status = 4
+	group by vu.id
 	order by 1
 ),
 monetary_query as (
-	select vo.user_id ,NTILE(5) OVER(ORDER BY sum(cost)) as monetary_value  from analysis.v_orders vo 
-	where vo.status = 4
-	group by vo.user_id
+	select vu.id as user_id, NTILE(5) OVER(ORDER BY sum(cost) nulls first) as monetary_value 
+	from analysis.v_users vu 
+	left join analysis.v_orders vo 
+	on vu.id = vo.user_id
+	and vo.order_ts >= date '2021-01-01'
+	and vo.status = 4
+	group by vu.id
 	order by 1
 )
 select vu.id user_id, rq.recency, fq.frequency, mq.monetary_value  from analysis.v_users vu 
@@ -212,28 +225,33 @@ order by 1;
 
 insert into analysis.dm_rfm_segments 
 with recency_query as (
-	select ss.user_id, NTILE(5) OVER(ORDER BY ss.recency desc) as recency 
-	from (
-		select distinct s.user_id, 
-			LAST_VALUE(s.diff) OVER (partition by s.user_id ORDER BY s.order_ts 
-			RANGE BETWEEN 
-		   	UNBOUNDED PRECEDING AND 
-		    UNBOUNDED FOLLOWING) as recency
-		from (
-			select vo.user_id, vo.order_ts ,vo.order_ts - lag(vo.order_ts) over (partition by vo.user_id order by vo.order_ts) diff
-			from analysis.v_orders vo
-			order by vo.user_id, vo.order_ts) s
-	order by 1) ss
+	select vu.id as user_id, NTILE(5) OVER(ORDER BY max(vo.order_ts) nulls first) as recency
+	from analysis.v_users vu 
+	left join analysis.v_orders vo 
+	on vu.id = vo.user_id
+	and vo.order_ts >= date '2021-01-01'
+	and vo.status = 4
+	group by vu.id
+	order by 1
 ),
 frequency_query as (
-	select vo.user_id, NTILE(5) OVER(ORDER BY count(*)) as frequency  from analysis.v_orders vo 
-	group by vo.user_id
+	select vu.id as user_id, NTILE(5) OVER(ORDER BY count(vo.order_id) nulls first) as frequency
+	from analysis.v_users vu 
+	left join analysis.v_orders vo 
+	on vu.id = vo.user_id
+	and vo.order_ts >= date '2021-01-01'
+	and vo.status = 4
+	group by vu.id
 	order by 1
 ),
 monetary_query as (
-	select vo.user_id ,NTILE(5) OVER(ORDER BY sum(cost)) as monetary_value  from analysis.v_orders vo 
-	where vo.status = 4
-	group by vo.user_id
+	select vu.id as user_id, NTILE(5) OVER(ORDER BY sum(cost) nulls first) as monetary_value 
+	from analysis.v_users vu 
+	left join analysis.v_orders vo 
+	on vu.id = vo.user_id
+	and vo.order_ts >= date '2021-01-01'
+	and vo.status = 4
+	group by vu.id
 	order by 1
 )
 select vu.id user_id, rq.recency, fq.frequency, mq.monetary_value  from analysis.v_users vu 
