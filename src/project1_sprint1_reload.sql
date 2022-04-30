@@ -66,8 +66,8 @@ CREATE TABLE analysis.dm_rfm_segments (
 	CONSTRAINT dm_rfm_segments_recency_user_id_pkey PRIMARY KEY (user_id),
 	CONSTRAINT dm_rfm_segments_recency_check CHECK ((recency > 0) AND (recency < 6)),
 	CONSTRAINT dm_rfm_segments_frequency_check CHECK ((frequency > 0) AND (frequency < 6)),
---	CONSTRAINT dm_rfm_segments_monetary_value_check CHECK ((monetary_value > 0) AND (monetary_value < 6))
-        CONSTRAINT dm_rfm_segments_monetary_value_check CHECK (((monetary_value > 0) AND (monetary_value < 6)) OR monetary_value IS NULL)
+    CONSTRAINT dm_rfm_segments_monetary_value_check CHECK ((monetary_value > 0) AND (monetary_value < 6))
+
 );
 
 -----------------
